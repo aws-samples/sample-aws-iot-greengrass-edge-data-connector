@@ -1,0 +1,4 @@
+# MySQL到S3轮询组件Python依赖
+mysql-connector-python>=8.0.0
+stream-manager>=1.2.0
+boto3>=1.26.0

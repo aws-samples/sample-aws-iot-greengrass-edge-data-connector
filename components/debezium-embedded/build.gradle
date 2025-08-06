@@ -1,0 +1,69 @@
+// 按照GitHub示例 https://github.com/aws-greengrass/aws-greengrass-stream-manager-sdk-java/tree/main/samples/StreamManagerS3
+// 使用现代Gradle语法
+plugins {
+    id 'java'
+}
+
+group = 'com.example'
+version = '1.0.0'
+sourceCompatibility = '11'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // Jackson dependencies - 按照GitHub示例版本
+    implementation 'com.fasterxml.jackson.core:jackson-core:2.9.0'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.9.0'
+    implementation 'com.fasterxml.jackson.core:jackson-annotations:2.10.0'
+    implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.9.0'
+    
+    // HTTP Client - 按照GitHub示例
+    implementation 'org.apache.httpcomponents:httpclient:4.5.3'
+    
+    // AWS Lambda Core - 按照GitHub示例
+    implementation 'com.amazonaws:aws-lambda-java-core:1.1.0'
+    
+    // AWS Greengrass Stream Manager SDK - 从libs目录加载本地JAR
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    
+    // Debezium dependencies
+    implementation 'io.debezium:debezium-embedded:2.4.2.Final'
+    implementation 'io.debezium:debezium-connector-mysql:2.4.2.Final'
+    
+    // MySQL JDBC Driver
+    implementation 'com.mysql:mysql-connector-j:8.0.33'
+    
+    // Logging
+    implementation 'org.slf4j:slf4j-api:1.7.36'
+    implementation 'org.slf4j:slf4j-simple:1.7.36'
+}
+
+// 按照GitHub示例的构建任务
+task buildZip(type: Zip) {
+    from compileJava
+    from processResources
+    into('lib') {
+        from configurations.runtimeClasspath
+    }
+}
+
+// Fat JAR任务 - 用于Greengrass部署
+jar {
+    manifest {
+        attributes(
+            'Main-Class': 'com.example.DebeziumEmbeddedCDC'
+        )
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+build.dependsOn buildZip
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}

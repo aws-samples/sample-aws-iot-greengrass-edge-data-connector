@@ -1,0 +1,62 @@
+{
+  "RecipeFormatVersion": "2020-01-25",
+  "ComponentName": "com.example.SFTPToS3Component",
+  "ComponentVersion": "1.0.1",
+  "ComponentDescription": "SFTP到S3数据同步组件 - 连接本地SFTP服务器读取CDC文件并通过Stream Manager上传到S3",
+  "ComponentPublisher": "IoT Project",
+  "ComponentConfiguration": {
+    "DefaultConfiguration": {
+      "sftp_host": "localhost",
+      "sftp_port": 22,
+      "sftp_username": "sftpuser",
+      "sftp_password": "sftppassword123",
+      "sftp_remote_path": "/data",
+      "s3_bucket": "zihangh-gg-streammanager-poc",
+      "s3_key_prefix": "gg_mysql/sftp-sync/",
+      "scan_interval": 30,
+      "max_retries": 5,
+      "retry_delay": 10
+    }
+  },
+  "ComponentDependencies": {
+    "aws.greengrass.StreamManager": {
+      "VersionRequirement": ">=2.0.0",
+      "DependencyType": "HARD"
+    }
+  },
+  "Manifests": [
+    {
+      "Platform": {
+        "os": "linux"
+      },
+      "Lifecycle": {
+        "Install": {
+          "RequiresPrivilege": false,
+          "Script": "python3 -m pip install --user paramiko>=2.7.0 stream-manager>=1.2.0 boto3>=1.26.0\necho 'Python依赖安装完成'"
+        },
+        "Run": {
+          "RequiresPrivilege": false,
+          "Script": "echo 'Starting SFTP to S3 Sync Component...'\nexport PYTHONPATH=$PYTHONPATH:/home/ggc_user/.local/lib/python3.10/site-packages\ncd {artifacts:path}\npython3 sftp_to_s3.py"
+        }
+      },
+      "Artifacts": [
+        {
+          "Uri": "s3://zihangh-gg-streammanager-poc/components/sftp_to_s3.py",
+          "Unarchive": "NONE",
+          "Permission": {
+            "Read": "OWNER",
+            "Execute": "NONE"
+          }
+        },
+        {
+          "Uri": "s3://zihangh-gg-streammanager-poc/components/requirements.txt",
+          "Unarchive": "NONE",
+          "Permission": {
+            "Read": "OWNER",
+            "Execute": "NONE"
+          }
+        }
+      ]
+    }
+  ]
+}

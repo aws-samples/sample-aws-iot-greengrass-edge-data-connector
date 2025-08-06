@@ -1,0 +1,4 @@
+# SFTP到S3组件Python依赖
+paramiko>=2.7.0
+stream-manager>=1.2.0
+boto3>=1.26.0

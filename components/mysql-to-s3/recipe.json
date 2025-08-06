@@ -1,0 +1,63 @@
+{
+  "RecipeFormatVersion": "2020-01-25",
+  "ComponentName": "com.example.MySQLToS3Component",
+  "ComponentVersion": "1.0.1",
+  "ComponentDescription": "MySQL到S3定时轮询组件 - 定时轮询MySQL数据库获取增量数据并通过Stream Manager上传到S3",
+  "ComponentPublisher": "IoT Project",
+  "ComponentConfiguration": {
+    "DefaultConfiguration": {
+      "mysql_host": "localhost",
+      "mysql_port": 3306,
+      "mysql_database": "testdb",
+      "mysql_username": "testuser",
+      "mysql_password": "testpassword",
+      "s3_bucket": "zihangh-gg-streammanager-poc",
+      "s3_key_prefix": "gg_mysql/mysql-polling/",
+      "polling_interval": 300,
+      "batch_size": 100,
+      "max_retries": 5,
+      "retry_delay": 10
+    }
+  },
+  "ComponentDependencies": {
+    "aws.greengrass.StreamManager": {
+      "VersionRequirement": ">=2.0.0",
+      "DependencyType": "HARD"
+    }
+  },
+  "Manifests": [
+    {
+      "Platform": {
+        "os": "linux"
+      },
+      "Lifecycle": {
+        "Install": {
+          "RequiresPrivilege": false,
+          "Script": "python3 -m pip install --user mysql-connector-python>=8.0.0 stream-manager>=1.2.0 boto3>=1.26.0\necho 'Python依赖安装完成'"
+        },
+        "Run": {
+          "RequiresPrivilege": false,
+          "Script": "echo 'Starting MySQL to S3 Polling Component...'\nexport PYTHONPATH=$PYTHONPATH:/home/ggc_user/.local/lib/python3.10/site-packages\ncd {artifacts:path}\npython3 mysql_to_s3.py"
+        }
+      },
+      "Artifacts": [
+        {
+          "Uri": "s3://zihangh-gg-streammanager-poc/components/mysql_to_s3.py",
+          "Unarchive": "NONE",
+          "Permission": {
+            "Read": "OWNER",
+            "Execute": "NONE"
+          }
+        },
+        {
+          "Uri": "s3://zihangh-gg-streammanager-poc/components/mysql_requirements.txt",
+          "Unarchive": "NONE",
+          "Permission": {
+            "Read": "OWNER",
+            "Execute": "NONE"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+{
+  "RecipeFormatVersion": "2020-01-25",
+  "ComponentName": "com.example.DebeziumEmbeddedComponent",
+  "ComponentVersion": "1.0.1",
+  "ComponentDescription": "Debezium Embedded CDC component to capture MySQL changes and send to S3 via Stream Manager - IoT Project",
+  "ComponentPublisher": "Amazon",
+  "ComponentDependencies": {
+    "aws.greengrass.StreamManager": {
+      "VersionRequirement": ">=2.2.1",
+      "DependencyType": "HARD",
+      "ConfigurationUpdate": {
+        "Merge": {
+          "STREAM_MANAGER_STORE_ROOT_DIR": "/tmp",
+          "STREAM_MANAGER_SERVER_PORT": "8088",
+          "STREAM_MANAGER_AUTHENTICATE_CLIENT": "true",
+          "STREAM_MANAGER_EXPORTER_MAX_BANDWIDTH": "5000",
+          "STREAM_MANAGER_EXPORTER_THREAD_POOL_SIZE": "5",
+          "STREAM_MANAGER_EXPORTER_S3_DESTINATION_BUCKET": "zihangh-gg-streammanager-poc",
+          "STREAM_MANAGER_EXPORTER_S3_DESTINATION_KEY_PREFIX": "gg_mysql/debezium-embedded/"
+        }
+      }
+    }
+  },
+  "ComponentConfiguration": {
+    "DefaultConfiguration": {
+      "MYSQL_HOST": "localhost",
+      "MYSQL_PORT": "3306",
+      "MYSQL_USER": "testuser",
+      "MYSQL_PASSWORD": "testpassword",
+      "MYSQL_DATABASE": "testdb",
+      "S3_BUCKET": "zihangh-gg-streammanager-poc",
+      "S3_KEY_PREFIX": "gg_mysql/debezium-embedded/",
+      "BATCH_SIZE": "5",
+      "BATCH_TIMEOUT": "10",
+      "SERVER_ID": "3001"
+    }
+  },
+  "Manifests": [
+    {
+      "Platform": {
+        "os": "linux"
+      },
+      "Lifecycle": {
+        "Install": {
+          "RequiresPrivilege": false,
+          "Script": "echo 'Installing Debezium Embedded CDC Component...'\necho 'Java version:'\njava -version\necho 'Installation completed.'"
+        },
+        "Run": {
+          "RequiresPrivilege": false,
+          "Script": "echo 'Starting Debezium Embedded CDC Component...'\nexport JAVA_OPTS=\"-Xmx512m -Xms256m -XX:+UseG1GC\"\ncd {artifacts:path}\njava $JAVA_OPTS -jar debezium-embedded-cdc-1.0.0.jar"
+        }
+      },
+      "Artifacts": [
+        {
+          "URI": "s3://zihangh-gg-streammanager-poc/components/debezium-embedded-cdc-1.0.0.jar",
+          "Unarchive": "NONE"
+        },
+        {
+          "URI": "s3://zihangh-gg-streammanager-poc/components/debezium.properties",
+          "Unarchive": "NONE"
+        }
+      ]
+    }
+  ]
+}
