@@ -17,6 +17,22 @@ MySQL数据库 → CDC组件 → Stream Manager → Amazon S3
 ## Architecture diagram
 ![overall architecture](./images/ab-gg-demo.drawio.png)
 
+1. The development and operation team can define the edge features based on Amazon IoT Greengrass components. DevOps engineers should upload artifacts (code files) and recipes (component configuration) to S3, and then create components on the IoT Greengrass console or by invoking AWS APIs.
+2. Greengrass devices (local edge machines) connect to IoT Greengrass endpoint through publich Internet. All components will be automatically deployed to the edge. The Greengrass will upload deployment job status to the cloud.
+3. Nucleus is the core component that maintains the whole Greengrass software. It orchestrates the runtime and manages all components’ lifecycle. The deployment will update the local component files.
+4. Custom component "MYSQLToS3" periodically read incremental data in the local database, then ingest data into Stream Manager component via AWS IoT Device SDK Python v2. The database authentication data (username, password) will be obtained from Secret Manager component. 
+5. Custom component "SFTPToS3" periodically scan the specific SFTP server folder and ingest new files to S3 via Stream Manager component.
+6. Custom component "DebeziumEmbedded" will detect incremental change events in the local database, and synchronize them into S3 via Stream Manager component.
+7. Stream Manager is an AWS-provided component, which can process large volume and high-throughput IoT data, and transmit them in a streaming way directly into AWS cloud services such as S3, Kinesis Data Streams, IoT Sitewise.
+8. Data in S3 can be consumed by many AWS services for big data analysis, e.g. EMR, Athena. Users can seamless integrate their analytics platform with these data.
+Log Manager, an AWS-provided component, collects and uploads logs of all Greengrass components and external applications on the edge. It can process the log sin real-time and manage the disk space consumption.
+9. All logs are ingested to CloudWatch as the centralized log center for extracting insights.
+10. DevOps team can set up log analysis platform to explore insights from application logs of Greengrass core devices.
+11. Systems Manager Agent extends Systems Manager from cloud capabilities like command execution and patching to the edge devices. Users can leverage Systems Manager on AWS console to remotely access VM fleets and configure their systems.
+12. Same as other Linux virtual machines on AWS cloud, users can remotely login the Greengrass core device via System Manager on AWS console.
+13. Secret Manager, an AWS-provided component, can securely synchronize the secrets from cloud to the edge for local programmatic access. Users store their secrets like username, password, and token in Secret Manager on AWS cloud.
+14. DevOps team can maintain the secrets via AWS console. We recommend to periodically rotate secrets like username/password for database or storage access.
+
 ## 📦 组件说明
 
 ### 1. Debezium Embedded组件 (`com.example.DebeziumEmbeddedComponent`)
