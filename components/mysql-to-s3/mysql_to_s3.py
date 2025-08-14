@@ -180,78 +180,162 @@ class MySQLToS3Component:
             logger.error(f"MySQL连接错误: {e}")
             return False
     
-    def build_max_query(table_name, column_name):
-        """
-        Build MAX query with validated and quoted identifiers.
-        SECURITY: Both identifiers are validated against regex pattern and properly quoted.
-        This is safe from SQL injection as identifiers cannot contain SQL metacharacters.
-        """
+    def execute_max_query_with_validation(self, table_name, column_name):
+        """Execute MAX query with SQL-based validation using INFORMATION_SCHEMA"""
+        try:
+            cursor = self.mysql_connection.cursor()
+            
+            # SQL statement that validates table and column existence before executing the query
+            validation_and_query_sql = """
+            SET @table_exists = (
+                SELECT COUNT(*) FROM information_schema.tables
+                WHERE table_name = %s AND table_schema = DATABASE()
+            );
+            
+            SET @column_exists = (
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = %s AND column_name = %s AND table_schema = DATABASE()
+            );
+            
+            SET @sql = CASE 
+                WHEN @table_exists > 0 AND @column_exists > 0 THEN
+                    CONCAT('SELECT MAX(`', %s, '`) FROM `', %s, '`')
+                ELSE
+                    'SELECT NULL as validation_error'
+            END;
+            
+            PREPARE stmt FROM @sql;
+            EXECUTE stmt;
+            DEALLOCATE PREPARE stmt;
+            
+            SELECT @table_exists as table_exists, @column_exists as column_exists;
+            """
+            
+            # Execute the validation and query
+            for result in cursor.execute(validation_and_query_sql, 
+                                       (table_name, table_name, column_name, column_name, table_name), 
+                                       multi=True):
+                if result.with_rows:
+                    rows = result.fetchall()
+                    # The last result contains our validation flags
+                    if len(rows) > 0 and len(rows[0]) == 2:
+                        table_exists, column_exists = rows[0]
+                        if table_exists == 0:
+                            raise ValueError(f"Table does not exist: {table_name}")
+                        if column_exists == 0:
+                            raise ValueError(f"Column does not exist: {column_name} in table {table_name}")
+                    else:
+                        # This should be our MAX result
+                        return rows[0][0] if rows and rows[0] else None
+            
+            cursor.close()
+            return None
+            
+        except Error as e:
+            logger.error(f"SQL validation and query error: {e}")
+            raise
 
-        # Simple validation to ensure identifiers contain only safe characters
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
-            raise ValueError(f"Invalid table name: {table_name}")
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', column_name):
-            raise ValueError(f"Invalid column name: {column_name}")
-    
-        return "SELECT MAX(`" + column_name + "`) FROM `" + table_name + "`"
+    def execute_incremental_query_with_validation(self, table_name, timestamp_column, last_timestamp, batch_size):
+        """Execute incremental query with SQL-based validation using INFORMATION_SCHEMA"""
+        try:
+            cursor = self.mysql_connection.cursor(dictionary=True)
+            
+            # SQL statement that validates table and column existence before executing the query
+            validation_and_query_sql = """
+            SET @table_exists = (
+                SELECT COUNT(*) FROM information_schema.tables
+                WHERE table_name = %s AND table_schema = DATABASE()
+            );
+            
+            SET @column_exists = (
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = %s AND column_name = %s AND table_schema = DATABASE()
+            );
+            
+            SET @sql = CASE 
+                WHEN @table_exists > 0 AND @column_exists > 0 THEN
+                    CONCAT('SELECT * FROM `', %s, '` WHERE `', %s, '` > ? ORDER BY `', %s, '` ASC LIMIT ?')
+                ELSE
+                    'SELECT NULL as validation_error'
+            END;
+            
+            PREPARE stmt FROM @sql;
+            SET @last_timestamp = %s;
+            SET @batch_size = %s;
+            EXECUTE stmt USING @last_timestamp, @batch_size;
+            DEALLOCATE PREPARE stmt;
+            
+            SELECT @table_exists as table_exists, @column_exists as column_exists;
+            """
+            
+            # Execute the validation and query
+            results = []
+            validation_info = None
+            
+            for result in cursor.execute(validation_and_query_sql, 
+                                       (table_name, table_name, timestamp_column, 
+                                        table_name, timestamp_column, timestamp_column,
+                                        last_timestamp, batch_size), 
+                                       multi=True):
+                if result.with_rows:
+                    rows = result.fetchall()
+                    if rows and len(rows[0]) == 2 and 'table_exists' in rows[0]:
+                        # This is our validation result
+                        validation_info = rows[0]
+                    else:
+                        # This is our data result
+                        results = rows
+            
+            # Check validation results
+            if validation_info:
+                if validation_info['table_exists'] == 0:
+                    raise ValueError(f"Table does not exist: {table_name}")
+                if validation_info['column_exists'] == 0:
+                    raise ValueError(f"Column does not exist: {timestamp_column} in table {table_name}")
+            
+            cursor.close()
+            return results
+            
+        except Error as e:
+            logger.error(f"SQL validation and incremental query error: {e}")
+            raise
 
     def initialize_sync_timestamps(self):
         """初始化同步时间戳"""
         try:
-            cursor = self.mysql_connection.cursor()
-            
             for table in self.config['monitored_tables']:
-                # 获取表中最新记录的时间戳
-                query = self.build_max_query(table, self.config['timestamp_column'])
-                cursor.execute(query)
-                result = cursor.fetchone()
+                # 获取表中最新记录的时间戳 - using SQL-based validation
+                result = self.execute_max_query_with_validation(table, self.config['timestamp_column'])
                 
-                if result and result[0]:
-                    self.last_sync_timestamps[table] = result[0]
-                    logger.info(f"表 {table} 初始同步时间戳: {result[0]}")
+                if result:
+                    self.last_sync_timestamps[table] = result
+                    logger.info(f"表 {table} 初始同步时间戳: {result}")
                 else:
                     # 如果表为空，使用当前时间前1小时
                     self.last_sync_timestamps[table] = datetime.now() - timedelta(hours=1)
                     logger.info(f"表 {table} 使用默认同步时间戳: {self.last_sync_timestamps[table]}")
             
-            cursor.close()
-            
-        except Error as e:
+        except Exception as e:
             logger.error(f"初始化同步时间戳失败: {e}")
             # 使用默认时间戳
             for table in self.config['monitored_tables']:
                 self.last_sync_timestamps[table] = datetime.now() - timedelta(hours=1)
     
-    def build_incremental_query(self, table_name, timestamp_column):
-        """
-        Build MAX query with validated and quoted identifiers.
-        SECURITY: Both identifiers are validated against regex pattern and properly quoted.
-        This is safe from SQL injection as identifiers cannot contain SQL metacharacters.
-        """
-
-        # Simple validation to ensure identifiers contain only safe characters
-        safe_table = self.safe_mysql_identifier(table_name)
-        safe_column = self.safe_mysql_identifier(timestamp_column)
-        
-        return ("SELECT * FROM " + safe_table + " " +
-                "WHERE " + safe_column + " > %s " +
-                "ORDER BY " + safe_column + " ASC " +
-                "LIMIT %s")
-
     def poll_table_data(self, table_name: str) -> List[Dict[str, Any]]:
         """轮询表数据获取增量记录"""
         try:
-            cursor = self.mysql_connection.cursor(dictionary=True)
-            
             last_timestamp = self.last_sync_timestamps.get(table_name)
             if not last_timestamp:
                 logger.warning(f"表 {table_name} 没有同步时间戳，跳过")
                 return []
 
-            # 查询增量数据
-            query = self.build_incremental_query(table_name, self.config['timestamp_column'])
-            cursor.execute(query, (last_timestamp, self.config['batch_size']))
-            records = cursor.fetchall()
+            # 查询增量数据 - using SQL-based validation
+            records = self.execute_incremental_query_with_validation(
+                table_name, 
+                self.config['timestamp_column'], 
+                last_timestamp, 
+                self.config['batch_size']
+            )
             
             if records:
                 # 更新最后同步时间戳
@@ -260,10 +344,9 @@ class MySQLToS3Component:
                 
                 logger.info(f"表 {table_name} 获取到 {len(records)} 条增量记录，最新时间戳: {latest_timestamp}")
             
-            cursor.close()
             return records
             
-        except Error as e:
+        except Exception as e:
             logger.error(f"轮询表 {table_name} 数据失败: {e}")
             return []
     
